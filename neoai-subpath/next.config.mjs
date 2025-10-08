@@ -1,7 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  basePath: "/neoai",
-  // Sin redirects aquí: los dejamos únicamente en Vercel (Settings → Redirects)
+  async rewrites() {
+    return [
+      // Sirve la app raíz bajo /neoai*
+      { source: "/neoai", destination: "/" },
+      { source: "/neoai/:path*", destination: "/:path*" },
+    ];
+  },
 };
 
 export default nextConfig;

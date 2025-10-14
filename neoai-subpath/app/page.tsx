@@ -1,6 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+
+/* =================== Ajustes WP =================== */
+const WP_BASE = 'https://neorejuvenai.com';
+const SESSION_URL = `${WP_BASE}/wp-json/neoai/v1/session`;
+const LOGIN_URL = `${WP_BASE}/wp-login.php`;
+const MEMBERSHIP_URL = `${WP_BASE}/membership-account/membership-levels/`; // <-- ajusta si usas otra URL
 
 /* ============ i18n mínimo (autodetección) ============ */
 function getBrowserLang(): string {
@@ -9,12 +15,66 @@ function getBrowserLang(): string {
   return code.split('-')[0].toLowerCase();
 }
 const I18N = {
-  es: { greeting: 'Hola, ¿en qué puedo ayudarte hoy?', placeholder: 'Escribe un mensaje...', rec: 'Grabando… toca para parar', micTip: 'Grabar por voz' },
-  en: { greeting: 'Hi, how can I help you today?', placeholder: 'Type a message...', rec: 'Recording… tap to stop', micTip: 'Voice input' },
-  fr: { greeting: "Bonjour, comment puis-je vous aider aujourd'hui ?", placeholder: 'Écrivez un message...', rec: 'Enregistrement… touchez pour arrêter', micTip: 'Saisie vocale' },
-  it: { greeting: 'Ciao, come posso aiutarti oggi?', placeholder: 'Scrivi un messaggio...', rec: 'Registrazione… tocca per fermare', micTip: 'Dettatura vocale' },
-  de: { greeting: 'Hallo, wie kann ich dir heute helfen?', placeholder: 'Schreibe eine Nachricht...', rec: 'Aufnahme… tippen zum Stoppen', micTip: 'Spracheingabe' },
-  pt: { greeting: 'Olá, como posso ajudar você hoje?', placeholder: 'Escreva uma mensagem...', rec: 'Gravando… toque para parar', micTip: 'Entrada por voz' },
+  es: {
+    greeting: 'Hola, ¿en qué puedo ayudarte hoy?',
+    placeholder: 'Escribe un mensaje...',
+    rec: 'Grabando… toca para parar',
+    micTip: 'Grabar por voz',
+    checkingAccess: 'Comprobando acceso…',
+    needMembership: 'Necesitas una membresía activa para usar esta función.',
+    viewPlans: 'Ver planes de membresía',
+    retry: 'Reintentar',
+  },
+  en: {
+    greeting: 'Hi, how can I help you today?',
+    placeholder: 'Type a message...',
+    rec: 'Recording… tap to stop',
+    micTip: 'Voice input',
+    checkingAccess: 'Checking access…',
+    needMembership: 'You need an active membership to use this feature.',
+    viewPlans: 'View membership plans',
+    retry: 'Retry',
+  },
+  fr: {
+    greeting: "Bonjour, comment puis-je vous aider aujourd'hui ?",
+    placeholder: 'Écrivez un message...',
+    rec: 'Enregistrement… touchez pour arrêter',
+    micTip: 'Saisie vocale',
+    checkingAccess: "Vérification de l'accès…",
+    needMembership: 'Vous avez besoin d’un abonnement actif pour utiliser cette fonctionnalité.',
+    viewPlans: "Voir les abonnements",
+    retry: 'Réessayer',
+  },
+  it: {
+    greeting: 'Ciao, come posso aiutarti oggi?',
+    placeholder: 'Scrivi un messaggio...',
+    rec: 'Registrazione… tocca per fermare',
+    micTip: 'Dettatura vocale',
+    checkingAccess: 'Verifica dell’accesso…',
+    needMembership: 'Hai bisogno di un abbonamento attivo per usare questa funzione.',
+    viewPlans: 'Vedi piani',
+    retry: 'Riprova',
+  },
+  de: {
+    greeting: 'Hallo, wie kann ich dir heute helfen?',
+    placeholder: 'Schreibe eine Nachricht...',
+    rec: 'Aufnahme… tippen zum Stoppen',
+    micTip: 'Spracheingabe',
+    checkingAccess: 'Zugriff wird geprüft…',
+    needMembership: 'Für diese Funktion brauchst du eine aktive Mitgliedschaft.',
+    viewPlans: 'Mitgliedschaften ansehen',
+    retry: 'Erneut versuchen',
+  },
+  pt: {
+    greeting: 'Olá, como posso ajudar você hoje?',
+    placeholder: 'Escreva uma mensagem...',
+    rec: 'Gravando… toque para parar',
+    micTip: 'Entrada por voz',
+    checkingAccess: 'Verificando acesso…',
+    needMembership: 'Você precisa de uma assinatura ativa para usar este recurso.',
+    viewPlans: 'Ver planos',
+    retry: 'Tentar novamente',
+  },
 } as const;
 
 function useLocale() {
@@ -53,6 +113,75 @@ function IconSend(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
+/* =================== Gating (login + membresía) =================== */
+function Gate({ children }: { children: React.ReactNode }) {
+  const { checkingAccess, needMembership, viewPlans, retry } = useLocale();
+  const [state, setState] = useState<'checking'|'allow'|'upgrade'|'error'>('checking');
+
+  const checkSession = useCallback(async () => {
+    try {
+      const res = await fetch(SESSION_URL, { credentials: 'include' });
+      const data = await res.json();
+
+      if (!data?.authenticated) {
+        const back = encodeURIComponent(window.location.href);
+        window.location.href = `${LOGIN_URL}?redirect_to=${back}`;
+        return;
+      }
+      if (data?.rcp_active === false) {
+        setState('upgrade');
+      } else {
+        setState('allow');
+      }
+    } catch {
+      setState('error');
+    }
+  }, []);
+
+  useEffect(() => { void checkSession(); }, [checkSession]);
+
+  if (state === 'checking') {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-neutral-950 text-neutral-300">
+        <span>{checkingAccess}</span>
+      </div>
+    );
+  }
+  if (state === 'upgrade') {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-neutral-950 text-neutral-100">
+        <div className="max-w-md text-center px-6">
+          <h2 className="text-xl mb-3">{needMembership}</h2>
+          <a
+            className="inline-block mt-2 px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-900"
+            href={MEMBERSHIP_URL}
+          >
+            {viewPlans}
+          </a>
+        </div>
+      </div>
+    );
+  }
+  if (state === 'error') {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-neutral-950 text-neutral-100">
+        <div className="text-center">
+          <p className="mb-3">No se pudo verificar el acceso.</p>
+          <button
+            onClick={() => { setState('checking'); void checkSession(); }}
+            className="px-4 py-2 rounded-lg border border-neutral-700 hover:bg-neutral-900"
+          >
+            {retry}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // state === 'allow'
+  return <>{children}</>;
+}
+
 /* =================== Tipos para un ÚNICO chat =================== */
 type ChatRole = 'user' | 'assistant';
 type ChatMessage = {
@@ -64,7 +193,8 @@ type ChatMessage = {
   };
 };
 
-export default function ChatPage() {
+/* =================== UI principal del chat =================== */
+function ChatUI() {
   const { greeting, placeholder, rec, micTip } = useLocale();
 
   // Un único hilo (NO persiste conversaciones)
@@ -186,7 +316,7 @@ export default function ChatPage() {
             } catch { /* ignorar lectura local fallida */ }
           }
 
-          // (2) subida normal a OpenAI Files (para PDFs y para chips)
+          // (2) subida normal a tu API (que a su vez sube a OpenAI Files)
           const form = new FormData();
           form.append('file', f, f.name);
           const r = await fetch('/api/files', { method: 'POST', body: form });
@@ -229,12 +359,11 @@ export default function ChatPage() {
 
         processor.onaudioprocess = (e: AudioProcessingEvent) => {
           const inputBuf = e.inputBuffer.getChannelData(0);
-          // Copiamos el frame (Float32) para acumular (evita mutación)
-          chunksRef.current.push(new Float32Array(inputBuf));
+          chunksRef.current.push(new Float32Array(inputBuf)); // copia frame
         };
 
         source.connect(processor);
-        processor.connect(ctx.destination); // necesario en Safari para “tick”
+        processor.connect(ctx.destination); // necesario en Safari
 
         // Timer de duración
         if (recTimerRef.current) window.clearInterval(recTimerRef.current);
@@ -258,23 +387,15 @@ export default function ChatPage() {
     }
 
     // Detener audio graph
-    try {
-      processorRef.current?.disconnect();
-    } catch {}
-    try {
-      sourceRef.current?.disconnect();
-    } catch {}
-    try {
-      audioCtxRef.current?.close();
-    } catch {}
+    try { processorRef.current?.disconnect(); } catch {}
+    try { sourceRef.current?.disconnect(); } catch {}
+    try { audioCtxRef.current?.close(); } catch {}
 
     // Parar tracks
-    try {
-      mediaStreamRef.current?.getTracks().forEach(t => t.stop());
-    } catch {}
+    try { mediaStreamRef.current?.getTracks().forEach(t => t.stop()); } catch {}
 
     // Construir WAV y transcribir
-    const wavBlob = encodeWavFromChunks(chunksRef.current, /*sampleRate*/ audioCtxRef.current?.sampleRate || 44100);
+    const wavBlob = encodeWavFromChunks(chunksRef.current, audioCtxRef.current?.sampleRate || 44100);
     chunksRef.current = [];
     void transcribe(wavBlob);
   }
@@ -288,7 +409,6 @@ export default function ChatPage() {
       const r = await fetch('/api/transcribe', { method: 'POST', body: form });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j?.ok) {
-        // Mete el texto en el input (si ya hay texto, concatena con espacio)
         setInput(prev => (prev ? (prev.trim() + ' ' + (j.text || '').trim()) : (j.text || '').trim()));
       } else {
         alert(`Error transcribiendo: ${j?.error || r.status}`);
@@ -302,7 +422,6 @@ export default function ChatPage() {
 
   // PCM Float32 -> WAV (16-bit PCM mono)
   function encodeWavFromChunks(chunks: Float32Array[], sampleRate: number) {
-    // Unir en un único Float32Array
     const totalLen = chunks.reduce((a, c) => a + c.length, 0);
     const data = new Float32Array(totalLen);
     let offset = 0;
@@ -311,14 +430,12 @@ export default function ChatPage() {
       offset += c.length;
     }
 
-    // Convertir a 16-bit PCM
     const pcm16 = new Int16Array(data.length);
     for (let i = 0; i < data.length; i++) {
       let s = Math.max(-1, Math.min(1, data[i]));
       pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
 
-    // WAV header (mono, 16-bit)
     const bytesPerSample = 2;
     const blockAlign = 1 * bytesPerSample;
     const byteRate = sampleRate * blockAlign;
@@ -345,9 +462,7 @@ export default function ChatPage() {
     writeString(view, p, 'data'); p += 4;
     view.setUint32(p, pcm16.byteLength, true); p += 4;
 
-    // PCM data
     new Uint8Array(buffer, 44).set(new Uint8Array(pcm16.buffer));
-
     return new Blob([buffer], { type: 'audio/wav' });
   }
 
@@ -477,7 +592,9 @@ export default function ChatPage() {
           style={{ paddingBottom: '6.5rem' }}
         >
           {messages.length === 0 && (
-            <div className="opacity-70 text-sm text-center">{greeting}</div>
+            <div className="opacity-70 text-sm text-center">
+              {greeting}
+            </div>
           )}
 
           {messages.map((m, i) => (
@@ -577,9 +694,9 @@ export default function ChatPage() {
               {/* Botón Mic (grabar/parar) */}
               <button
                 type="button"
-                aria-label={micTip}
+                aria-label="Mic"
                 title={micTip}
-                disabled={micDisabled}
+                disabled={busy || docBusy || transcribing}
                 onClick={() => (recording ? stopRecording() : startRecording())}
                 className={`absolute right-12 inline-flex items-center justify-center w-8 h-8 rounded-lg
                   ${recording ? 'text-white bg-red-600 hover:bg-red-500' : 'text-neutral-300 hover:text-white bg-transparent hover:bg-white/10'}
@@ -609,5 +726,14 @@ export default function ChatPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+/* =================== Página =================== */
+export default function Page() {
+  return (
+    <Gate>
+      <ChatUI />
+    </Gate>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Oswald } from "next/font/google";
 import "./globals.css";
+import SsoBootstrap from "./SsoBootstrap"; // 👈 importa el bootstrap SSO
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +42,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${oswald.variable} antialiased bg-neutral-950 text-neutral-100`}
       >
+        <SsoBootstrap /> {/* 👈 guarda ?sso= en localStorage y limpia la URL */}
         {children}
       </body>
     </html>

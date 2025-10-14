@@ -1,5 +1,6 @@
 'use client';
 
+import { getSession, getLimits, type SessionResp, type LimitsResp } from "../lib/wpFetch";
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 
 /* =================== Ajustes WP =================== */

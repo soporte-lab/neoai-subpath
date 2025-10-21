@@ -1,6 +1,14 @@
 /* =================== Gating (login + membresía) =================== */
 function Gate({ children }: { children: React.ReactNode }) {
-  const { checkingAccess, needMembership, viewPlans, retry } = useLocale();
+  // Corregido: obtenemos `t` desde useLocale() y extraemos las claves de localización desde `t`
+  const { t } = useLocale();
+  const {
+    checkingAccess,
+    needMembership,
+    viewPlans,
+    retry
+  } = t;
+
   const [state, setState] = useState<'checking' | 'allow' | 'upgrade' | 'login' | 'error'>('checking');
 
   const checkSession = useCallback(async () => {

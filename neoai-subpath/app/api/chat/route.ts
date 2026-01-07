@@ -72,7 +72,7 @@ export async function POST(req: Request) {
         ? cookieLang
         : pickLangFromAccept(accept);
 
-    const attachmentRuleByLang: Record<string, string> = {
+    const attachmentRuleByLang: Record<SupportedLang, string> = {
       es: "Responde únicamente basándote en los archivos adjuntos de este turno. No uses la base de conocimiento global ni la web.",
       en: "Answer only using the files attached in this turn. Do not use the global knowledge base or the web.",
       fr: "Réponds uniquement en te basant sur les fichiers joints à ce tour. N'utilise pas la base de connaissances globale ni le web.",
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: attachmentRuleByLang[lang] || attachmentRuleByLang.es,
+          text: attachmentRuleByLang[lang],
         }],
       });
 

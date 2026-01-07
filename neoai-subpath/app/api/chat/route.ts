@@ -1,4 +1,6 @@
 // app/api/chat/route.ts
+import { cookies, headers } from "next/headers";
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -45,8 +47,51 @@ export async function POST(req: Request) {
       inline_texts?: string[]; // Texto en línea capturado en cliente (txt/md/csv)
     };
 
+    // ===== Language detection (es/en/fr/it/de) =====
+    type SupportedLang = "es" | "en" | "fr" | "it" | "de";
+    const supportedLangs: readonly SupportedLang[] = ["es", "en", "fr", "it", "de"];
+
+    const isSupportedLang = (lang: string): lang is SupportedLang =>
+      (supportedLangs as readonly string[]).includes(lang);
+
+    const pickLangFromAccept = (acceptHeader: string): SupportedLang => {
+      const prefs = acceptHeader
+        .split(",")
+        .map((p) => p.split(";")[0].trim().toLowerCase())
+        .map((code) => code.split("-")[0]);
+      return (prefs.find(isSupportedLang) || "es") as SupportedLang;
+    };
+
+    const cookieLang = cookies().get("lang")?.value?.toLowerCase();
+    const accept = headers().get("accept-language") || "";
+    const lang: SupportedLang =
+      cookieLang && isSupportedLang(cookieLang) ? cookieLang : pickLangFromAccept(accept);
+
+    const attachmentRuleByLang: Record<SupportedLang, string> = {
+      es: "Responde únicamente basándote en los archivos adjuntos de este turno. No uses la base de conocimiento global ni la web.",
+      en: "Answer only using the files attached in this turn. Do not use the global knowledge base or the web.",
+      fr: "Réponds uniquement en te basant sur les fichiers joints à ce tour. N’utilise pas la base de connaissances globale ni le web.",
+      it: "Rispondi solo basandoti sui file allegati in questo turno. Non usare la base di conoscenza globale né il web.",
+      de: "Antworte ausschließlich basierend auf den in diesem Zug angehängten Dateien. Nutze weder die globale Wissensbasis noch das Web.",
+    };
+
     // 1) Historial (mapea tipos por rol)
     const input: any[] = [];
+
+    // System message to enforce language (must be first)
+    input.unshift({
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text:
+            `You are a helpful AI assistant. Always reply in ${lang}. ` +
+            `Use the same language as the user's last message whenever possible. ` +
+            `Never translate unless the user asks you to translate.`
+        }
+      ],
+    });
+
     for (const m of messages) {
       if (!m || typeof m.content !== 'string') continue;
       input.push({
@@ -102,7 +147,7 @@ export async function POST(req: Request) {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: 'Responde únicamente basándote en los archivos adjuntos de este turno. No uses la base de conocimiento global ni la web.',
+          text: attachmentRuleByLang[lang],
         }],
       });
 

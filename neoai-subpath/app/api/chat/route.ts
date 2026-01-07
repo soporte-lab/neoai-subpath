@@ -48,21 +48,27 @@ export async function POST(req: Request) {
     };
 
     // Language detection
-    const supported = new Set(["es", "en", "fr", "it", "de"] as const);
+    type SupportedLang = "es" | "en" | "fr" | "it" | "de";
+    const supportedLangs: readonly SupportedLang[] = ["es", "en", "fr", "it", "de"];
+    const supported = new Set<string>(supportedLangs);
 
-    const pickLangFromAccept = (acceptHeader: string) => {
+    const isSupportedLang = (lang: string): lang is SupportedLang => {
+      return supported.has(lang);
+    };
+
+    const pickLangFromAccept = (acceptHeader: string): SupportedLang => {
       const prefs = acceptHeader
         .split(",")
         .map((p) => p.split(";")[0].trim().toLowerCase())
         .map((code) => code.split("-")[0]);
-      return prefs.find((l) => supported.has(l as any)) || "es";
+      return prefs.find(isSupportedLang) || "es";
     };
 
     const cookieLang = (await cookies()).get("lang")?.value?.toLowerCase();
     const accept = (await headers()).get("accept-language") || "";
 
-    const lang =
-      cookieLang && supported.has(cookieLang as any)
+    const lang: SupportedLang =
+      cookieLang && isSupportedLang(cookieLang)
         ? cookieLang
         : pickLangFromAccept(accept);
 

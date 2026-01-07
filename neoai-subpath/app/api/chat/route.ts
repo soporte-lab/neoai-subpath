@@ -1,4 +1,4 @@
-// app/api/chat/route.ts
+// neoai-subpath/app/api/chat/route.ts
 import { cookies, headers } from "next/headers";
 
 export const runtime = 'nodejs';
@@ -62,13 +62,35 @@ export async function POST(req: Request) {
       return (prefs.find(isSupportedLang) || "es") as SupportedLang;
     };
 
+    // Fallback base: cookie > Accept-Language > es
     const cookieLang = cookies().get("lang")?.value?.toLowerCase();
     const accept = headers().get("accept-language") || "";
-    const lang: SupportedLang =
+    const baseLang: SupportedLang =
       cookieLang && isSupportedLang(cookieLang) ? cookieLang : pickLangFromAccept(accept);
 
+    // Heurística simple: detectar idioma del último mensaje del usuario
+    function detectLangFromText(text: string, fallback: SupportedLang): SupportedLang {
+      const t = (text || "").toLowerCase();
+
+      // French
+      if (/[àâçéèêëîïôùûüœ]/.test(t) || /\b(quoi|comment|pourquoi|est|avec|sans|pour|dans|une|un|des)\b/.test(t)) return "fr";
+      // Italian
+      if (/[àèéìòù]/.test(t) || /\b(che|come|perché|cos'è|cos’è|anche|solo|oggi|domani|dentro)\b/.test(t)) return "it";
+      // German
+      if (/[äöüß]/.test(t) || /\b(was|wie|warum|ist|und|nicht|für|mit|ohne|heute)\b/.test(t)) return "de";
+      // English
+      if (/\b(what|how|why|is|are|do|does|can|could|please|tell|explain)\b/.test(t)) return "en";
+      // Spanish
+      if (/[¿¡ñ]/.test(t) || /\b(qué|como|cómo|por qué|porque|es|son|puedes|dime|explica)\b/.test(t)) return "es";
+
+      return fallback;
+    }
+
+    const lastUserMsg = [...messages].reverse().find(m => m?.role === "user" && typeof m.content === "string");
+    const turnLang: SupportedLang = lastUserMsg ? detectLangFromText(lastUserMsg.content, baseLang) : baseLang;
+
     const attachmentRuleByLang: Record<SupportedLang, string> = {
-      es: "Responde únicamente basándote en los archivos adjuntos de este turno. No uses la base de conocimiento global ni de la web.",
+      es: "Responde únicamente basándote en los archivos adjuntos de este turno. No uses la base de conocimiento global ni la web.",
       en: "Answer only using the files attached in this turn. Do not use the global knowledge base or the web.",
       fr: "Réponds uniquement en te basant sur les fichiers joints à ce tour. N’utilise pas la base de connaissances globale ni le web.",
       it: "Rispondi solo basandoti sui file allegati in questo turno. Non usare la base di conoscenza globale né il web.",
@@ -78,15 +100,15 @@ export async function POST(req: Request) {
     // 1) Historial (mapea tipos por rol)
     const input: any[] = [];
 
-    // System message to enforce language (must be first)
+    // System message (first) – sets expectations
     input.unshift({
       role: "system",
       content: [
         {
           type: "input_text",
           text:
-            `You are a helpful AI assistant. Always reply in ${lang}. ` +
-            `Use the same language as the user's last message whenever possible. ` +
+            `You are a helpful AI assistant. Always reply in ${turnLang}. ` +
+            `Never switch languages unless the user switches. ` +
             `Never translate unless the user asks you to translate.`
         }
       ],
@@ -128,7 +150,7 @@ export async function POST(req: Request) {
         if (ext === 'pdf') pdfIds.push(fid);
         else nonPdfIds.push({ id: fid, name: filename || fid });
       } catch {
-        // Si falló la metadata, trátalo como NO-PDF por seguridad (evita error de context stuffing)
+        // Si falló la metadata, trátalo como NO-PDF por seguridad
         nonPdfIds.push({ id: fid, name: fid });
       }
     }
@@ -147,7 +169,7 @@ export async function POST(req: Request) {
         role: 'user',
         content: [{
           type: 'input_text',
-          text: attachmentRuleByLang[lang],
+          text: attachmentRuleByLang[turnLang],
         }],
       });
 
@@ -204,6 +226,18 @@ export async function POST(req: Request) {
       if (VECTOR_STORE_ID) tools.push({ type: 'file_search', vector_store_ids: [VECTOR_STORE_ID] });
       if (ENABLE_WEB_SEARCH) tools.push({ type: 'web_search' });
     }
+
+    // ✅ Refuerzo final del idioma por turno (sobrescribe deriva a español por “tema/base de conocimiento”)
+    // Lo añadimos AL FINAL, justo antes del fetch, para que tenga máxima prioridad contextual.
+    input.push({
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text: `IMPORTANT: Reply ONLY in ${turnLang}. Do not switch language.`
+        }
+      ],
+    });
 
     // 6) Llamada a Responses API (SSE)
     const upstream = await fetch('https://api.openai.com/v1/responses', {
